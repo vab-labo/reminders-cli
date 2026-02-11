@@ -36,6 +36,9 @@ private struct ShowAll: ParsableCommand {
     @Flag(help: "Only show reminders that have a due date set")
     var hasDueDate = false
 
+    @Flag(help: "Only show flagged reminders")
+    var flagged = false
+
     @Option(
         name: .shortAndLong,
         help: "Show only reminders due on this date")
@@ -63,6 +66,7 @@ private struct ShowAll: ParsableCommand {
 
         reminders.showAllReminders(
             dueOn: self.dueDate, includeOverdue: self.includeOverdue, hasDueDate: self.hasDueDate,
+            onlyFlagged: self.flagged,
             displayOptions: displayOptions, outputFormat: format)
     }
 }
@@ -87,6 +91,9 @@ private struct Show: ParsableCommand {
 
     @Flag(help: "Only show reminders that have a due date set")
     var hasDueDate = false
+
+    @Flag(help: "Only show flagged reminders")
+    var flagged = false
 
     @Option(
         name: .shortAndLong,
@@ -125,6 +132,7 @@ private struct Show: ParsableCommand {
 
         reminders.showListItems(
             withName: self.listName, dueOn: self.dueDate, includeOverdue: self.includeOverdue, hasDueDate: self.hasDueDate,
+            onlyFlagged: self.flagged,
             displayOptions: displayOptions, outputFormat: format, sort: sort, sortOrder: sortOrder)
     }
 }
@@ -178,6 +186,10 @@ private struct Add: ParsableCommand {
         help: "Set a recurrence rule, one of: \(Recurrence.commaSeparatedCases)")
     var recurrence: Recurrence?
 
+    @Flag(
+        help: "Flag this reminder")
+    var flagged = false
+
     func run() {
         reminders.addReminder(
             string: self.reminder.joined(separator: " "),
@@ -188,6 +200,7 @@ private struct Add: ParsableCommand {
             priority: priority,
             remindMeDate: self.remindMeDate,
             recurrence: self.recurrence,
+            flagged: self.flagged,
             outputFormat: format)
     }
 }
@@ -319,6 +332,16 @@ private struct Edit: ParsableCommand {
         help: "Clear the recurrence rule.")
     var clearRecurrence: Bool = false
 
+    @Flag(
+        name: .long,
+        help: "Flag this reminder.")
+    var flagged: Bool = false
+
+    @Flag(
+        name: .long,
+        help: "Unflag this reminder.")
+    var unflag: Bool = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -342,11 +365,16 @@ private struct Edit: ParsableCommand {
             throw ValidationError("Don't try to set & clear the recurrence at the same time.")
         }
 
+        if self.flagged && self.unflag {
+            throw ValidationError("Don't try to flag & unflag at the same time.")
+        }
+
         if self.reminder.isEmpty && self.notes == nil && self.url == nil && !self.clearUrl
             && self.dueDate == nil && !self.clearDueDate
             && self.remindMeDate == nil && !self.clearRemindMeDate
-            && self.recurrence == nil && !self.clearRecurrence {
-            throw ValidationError("Must specify new reminder content, new notes, a new URL, a new due date, a remind-me date, or a recurrence.")
+            && self.recurrence == nil && !self.clearRecurrence
+            && !self.flagged && !self.unflag {
+            throw ValidationError("Must specify new reminder content, new notes, a new URL, a new due date, a remind-me date, a recurrence, or a flag change.")
         }
     }
 
@@ -366,7 +394,9 @@ private struct Edit: ParsableCommand {
             remindMeDate: self.remindMeDate,
             clearRemindMeDate: self.clearRemindMeDate,
             recurrence: self.recurrence,
-            clearRecurrence: self.clearRecurrence
+            clearRecurrence: self.clearRecurrence,
+            flagged: self.flagged,
+            unflag: self.unflag
         )
     }
 }

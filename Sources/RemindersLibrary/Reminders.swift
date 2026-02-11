@@ -99,12 +99,13 @@ private func recurrenceLabel(for rule: EKRecurrenceRule) -> String {
     return freq
 }
 
-private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil) -> String {
+private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil, isFlagged: Bool = false) -> String {
     let dateString = formattedDueDate(from: reminder).map { " (\($0))" } ?? ""
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.map { " (\($0))" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
+    let flaggedString = isFlagged ? " (flagged)" : ""
 
     var extras = ""
     if let rule = reminder.recurrenceRules?.first {
@@ -115,7 +116,7 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
         extras += " (reminder: \(formatted))"
     }
 
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)\(extras)"
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)\(flaggedString)\(extras)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -200,22 +201,28 @@ public final class Reminders {
     }
 
     func showAllReminders(dueOn dueDate: DateComponents?, includeOverdue: Bool, hasDueDate: Bool,
+        onlyFlagged: Bool = false,
         displayOptions: DisplayOptions, outputFormat: OutputFormat
     ) {
         let semaphore = DispatchSemaphore(value: 0)
         let calendar = Calendar.current
+        let flaggedKeys = RemindersDB.getFlaggedKeys()
 
         self.reminders(on: self.getCalendars(), displayOptions: displayOptions) { reminders in
-            var matchingReminders = [(EKReminder, Int, String)]()
+            var matchingReminders = [(EKReminder, Int, String, Bool)]()
             for (i, reminder) in reminders.enumerated() {
                 let listName = reminder.calendar.title
+                let key = RemindersDB.lookupKey(listName: listName, title: reminder.title ?? "")
+                let isFlagged = flaggedKeys.contains(key)
+
+                if onlyFlagged && !isFlagged { continue }
 
                 if hasDueDate && reminder.dueDateComponents == nil {
                     continue
                 }
 
                 guard let dueDate = dueDate?.date else {
-                    matchingReminders.append((reminder, i, listName))
+                    matchingReminders.append((reminder, i, listName, isFlagged))
                     continue
                 }
 
@@ -229,16 +236,17 @@ public final class Reminders {
                     reminderDueDate, to: dueDate, toGranularity: .day) == .orderedAscending
 
                 if sameDay || (includeOverdue && earlierDay) {
-                    matchingReminders.append((reminder, i, listName))
+                    matchingReminders.append((reminder, i, listName, isFlagged))
                 }
             }
 
             switch outputFormat {
             case .json:
-                print(encodeToJson(data: matchingReminders.map { $0.0 }))
+                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.0, flagged: $0.3) }
+                print(encodeToJson(data: enriched))
             case .plain:
-                for (reminder, i, listName) in matchingReminders {
-                    print(format(reminder, at: i, listName: listName))
+                for (reminder, i, listName, isFlagged) in matchingReminders {
+                    print(format(reminder, at: i, listName: listName, isFlagged: isFlagged))
                 }
             }
 
@@ -249,23 +257,29 @@ public final class Reminders {
     }
 
     func showListItems(withName name: String, dueOn dueDate: DateComponents?, includeOverdue: Bool, hasDueDate: Bool,
+        onlyFlagged: Bool = false,
         displayOptions: DisplayOptions, outputFormat: OutputFormat, sort: Sort, sortOrder: CustomSortOrder)
     {
         let semaphore = DispatchSemaphore(value: 0)
         let calendar = Calendar.current
+        let flaggedKeys = RemindersDB.getFlaggedKeys()
 
         self.reminders(on: [self.calendar(withName: name)], displayOptions: displayOptions) { reminders in
-            var matchingReminders = [(EKReminder, Int?)]()
+            var matchingReminders = [(EKReminder, Int?, Bool)]()
             let reminders = sort == .none ? reminders : reminders.sorted(by: sort.sortFunction(order: sortOrder))
             for (i, reminder) in reminders.enumerated() {
                 let index = sort == .none ? i : nil
+                let key = RemindersDB.lookupKey(listName: name, title: reminder.title ?? "")
+                let isFlagged = flaggedKeys.contains(key)
+
+                if onlyFlagged && !isFlagged { continue }
 
                 if hasDueDate && reminder.dueDateComponents == nil {
                     continue
                 }
 
                 guard let dueDate = dueDate?.date else {
-                    matchingReminders.append((reminder, index))
+                    matchingReminders.append((reminder, index, isFlagged))
                     continue
                 }
 
@@ -279,16 +293,17 @@ public final class Reminders {
                     reminderDueDate, to: dueDate, toGranularity: .day) == .orderedAscending
 
                 if sameDay || (includeOverdue && earlierDay) {
-                    matchingReminders.append((reminder, index))
+                    matchingReminders.append((reminder, index, isFlagged))
                 }
             }
 
             switch outputFormat {
             case .json:
-                print(encodeToJson(data: matchingReminders.map { $0.0 }))
+                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.0, flagged: $0.2) }
+                print(encodeToJson(data: enriched))
             case .plain:
-                for (reminder, i) in matchingReminders {
-                    print(format(reminder, at: i))
+                for (reminder, i, isFlagged) in matchingReminders {
+                    print(format(reminder, at: i, isFlagged: isFlagged))
                 }
             }
 
@@ -344,7 +359,8 @@ public final class Reminders {
               dueDateComponents: DateComponents? = nil, clearDueDate: Bool,
               priority: Priority?, clearPriority: Bool,
               remindMeDate: DateComponents? = nil, clearRemindMeDate: Bool = false,
-              recurrence: Recurrence? = nil, clearRecurrence: Bool = false)
+              recurrence: Recurrence? = nil, clearRecurrence: Bool = false,
+              flagged: Bool = false, unflag: Bool = false)
     {
         let calendar = self.calendar(withName: name)
         let semaphore = DispatchSemaphore(value: 0)
@@ -426,6 +442,14 @@ public final class Reminders {
                 }
 
                 try Store.save(reminder, commit: true)
+
+                // Set/clear flagged via AppleScript (not available in EventKit)
+                if flagged || unflag {
+                    if let externalId = reminder.calendarItemExternalIdentifier {
+                        AppleScriptBridge.setFlagged(flagged, reminderId: externalId)
+                    }
+                }
+
                 print("Updated reminder '\(reminder.title!)'")
             } catch let error {
                 print("Failed to update reminder with error: \(error)")
@@ -499,6 +523,7 @@ public final class Reminders {
         priority: Priority,
         remindMeDate: DateComponents? = nil,
         recurrence: Recurrence? = nil,
+        flagged: Bool = false,
         outputFormat: OutputFormat)
     {
         let calendar = self.calendar(withName: name)
@@ -526,9 +551,15 @@ public final class Reminders {
 
         do {
             try Store.save(reminder, commit: true)
+
+            // Set flagged via AppleScript after EventKit save (not available in EventKit)
+            if flagged, let externalId = reminder.calendarItemExternalIdentifier {
+                AppleScriptBridge.setFlagged(true, reminderId: externalId)
+            }
+
             switch (outputFormat) {
             case .json:
-                print(encodeToJson(data: reminder))
+                print(encodeToJson(data: EncodableReminder(reminder: reminder, flagged: flagged)))
             default:
                 print("Added '\(reminder.title!)' to '\(calendar.title)'")
             }
@@ -587,6 +618,51 @@ public final class Reminders {
         }
     }
 
+}
+
+/// Wraps EKReminder with extra fields not available in EventKit (e.g. flagged).
+struct EncodableReminder: Encodable {
+    let reminder: EKReminder
+    let flagged: Bool
+
+    private enum ExtraKeys: String, CodingKey {
+        case flagged
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try reminder.encode(to: encoder)
+        var container = encoder.container(keyedBy: ExtraKeys.self)
+        try container.encode(flagged, forKey: .flagged)
+    }
+}
+
+/// Bridge to Reminders.app via AppleScript for features not in EventKit.
+enum AppleScriptBridge {
+    /// Set or clear the flagged status of a reminder.
+    /// `reminderId` is EventKit's `calendarItemExternalIdentifier` (matches AppleScript `id` UUID).
+    static func setFlagged(_ value: Bool, reminderId: String) {
+        let appleScriptId = "x-apple-reminder://\(reminderId)"
+        let valueStr = value ? "true" : "false"
+        let script = """
+            tell application "Reminders"
+                set flagged of (reminder id "\(appleScriptId)") to \(valueStr)
+            end tell
+            """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus != 0 {
+                print("Warning: Failed to set flagged via AppleScript")
+            }
+        } catch {
+            print("Warning: Failed to run AppleScript: \(error)")
+        }
+    }
 }
 
 private func encodeToJson(data: Encodable) -> String {

@@ -24,6 +24,7 @@ extension EKReminder: @retroactive Encodable {
         case priority
         case startDate
         case dueDate
+        case allDay
         case list
         case reminderUrl
         case remindMeDate
@@ -67,6 +68,7 @@ extension EKReminder: @retroactive Encodable {
 
         if let dueDateComponents = self.dueDateComponents {
             try container.encodeIfPresent(format(dueDateComponents.date), forKey: .dueDate)
+            try container.encode(dueDateComponents.hour == nil, forKey: .allDay)
         }
 
         if let lastModifiedDate = self.lastModifiedDate {

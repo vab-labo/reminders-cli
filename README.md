@@ -144,6 +144,20 @@ Tags are read from the Reminders.app SQLite database (read-only), since
 EventKit does not expose a tags API. Tags can only be created and edited
 in the Reminders app.
 
+#### Filter by section
+
+```
+$ reminders show Work --section "In Progress"
+0: Design mockups (section: In Progress)
+1: Code review (section: In Progress)
+$ reminders show-all --section "Monthly"
+Work: 3: Team retrospective (section: Monthly)
+```
+
+Sections are read from the Reminders.app SQLite database (read-only), since
+EventKit does not expose a sections API. Sections can only be created and
+managed in the Reminders app.
+
 #### Sort reminders
 
 ```

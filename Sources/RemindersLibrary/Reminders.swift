@@ -5,9 +5,13 @@ import Foundation
 private let Store = EKEventStore()
 private let dateFormatter = RelativeDateTimeFormatter()
 private func formattedDueDate(from reminder: EKReminder) -> String? {
-    return reminder.dueDateComponents?.date.map {
-        dateFormatter.localizedString(for: $0, relativeTo: Date())
+    guard let components = reminder.dueDateComponents, let date = components.date else { return nil }
+    let relative = dateFormatter.localizedString(for: date, relativeTo: Date())
+    if let hour = components.hour {
+        let minute = components.minute ?? 0
+        return String(format: "%@ %02d:%02d", relative, hour, minute)
     }
+    return relative
 }
 
 private extension EKReminder {
@@ -99,7 +103,7 @@ private func recurrenceLabel(for rule: EKRecurrenceRule) -> String {
     return freq
 }
 
-private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil, isFlagged: Bool = false, tags: [String] = []) -> String {
+private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil, isFlagged: Bool = false, tags: [String] = [], section: String? = nil) -> String {
     let dateString = formattedDueDate(from: reminder).map { " (\($0))" } ?? ""
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
     let listString = listName.map { "\($0): " } ?? ""
@@ -107,6 +111,7 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
     let indexString = index.map { "\($0): " } ?? ""
     let flaggedString = isFlagged ? " (flagged)" : ""
     let tagsString = tags.isEmpty ? "" : " (tags: " + tags.map { "#\($0)" }.joined(separator: ", ") + ")"
+    let sectionString = section.map { " (section: \($0))" } ?? ""
 
     var extras = ""
     if let rule = reminder.recurrenceRules?.first {
@@ -117,7 +122,7 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
         extras += " (reminder: \(formatted))"
     }
 
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)\(flaggedString)\(tagsString)\(extras)"
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)\(flaggedString)\(tagsString)\(sectionString)\(extras)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -202,31 +207,34 @@ public final class Reminders {
     }
 
     func showAllReminders(dueOn dueDate: DateComponents?, includeOverdue: Bool, hasDueDate: Bool,
-        onlyFlagged: Bool = false, withTag: String? = nil,
+        onlyFlagged: Bool = false, withTag: String? = nil, inSection: String? = nil,
         displayOptions: DisplayOptions, outputFormat: OutputFormat
     ) {
         let semaphore = DispatchSemaphore(value: 0)
         let calendar = Calendar.current
         let flaggedKeys = RemindersDB.getFlaggedKeys()
         let tagMap = RemindersDB.getTagMap()
+        let sectionMap = RemindersDB.getSectionMap()
 
         self.reminders(on: self.getCalendars(), displayOptions: displayOptions) { reminders in
-            var matchingReminders: [(reminder: EKReminder, index: Int, listName: String, isFlagged: Bool, tags: [String])] = []
+            var matchingReminders: [(reminder: EKReminder, index: Int, listName: String, isFlagged: Bool, tags: [String], section: String?)] = []
             for (i, reminder) in reminders.enumerated() {
                 let listName = reminder.calendar.title
                 let key = RemindersDB.lookupKey(listName: listName, title: reminder.title ?? "")
                 let isFlagged = flaggedKeys.contains(key)
                 let tags = tagMap[key] ?? []
+                let section = sectionMap[key]
 
                 if onlyFlagged && !isFlagged { continue }
                 if let tag = withTag, !tags.contains(tag) { continue }
+                if let sec = inSection, section != sec { continue }
 
                 if hasDueDate && reminder.dueDateComponents == nil {
                     continue
                 }
 
                 guard let dueDate = dueDate?.date else {
-                    matchingReminders.append((reminder, i, listName, isFlagged, tags))
+                    matchingReminders.append((reminder, i, listName, isFlagged, tags, section))
                     continue
                 }
 
@@ -240,17 +248,17 @@ public final class Reminders {
                     reminderDueDate, to: dueDate, toGranularity: .day) == .orderedAscending
 
                 if sameDay || (includeOverdue && earlierDay) {
-                    matchingReminders.append((reminder, i, listName, isFlagged, tags))
+                    matchingReminders.append((reminder, i, listName, isFlagged, tags, section))
                 }
             }
 
             switch outputFormat {
             case .json:
-                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.reminder, flagged: $0.isFlagged, tags: $0.tags) }
+                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.reminder, flagged: $0.isFlagged, tags: $0.tags, section: $0.section) }
                 print(encodeToJson(data: enriched))
             case .plain:
                 for match in matchingReminders {
-                    print(format(match.reminder, at: match.index, listName: match.listName, isFlagged: match.isFlagged, tags: match.tags))
+                    print(format(match.reminder, at: match.index, listName: match.listName, isFlagged: match.isFlagged, tags: match.tags, section: match.section))
                 }
             }
 
@@ -261,32 +269,35 @@ public final class Reminders {
     }
 
     func showListItems(withName name: String, dueOn dueDate: DateComponents?, includeOverdue: Bool, hasDueDate: Bool,
-        onlyFlagged: Bool = false, withTag: String? = nil,
+        onlyFlagged: Bool = false, withTag: String? = nil, inSection: String? = nil,
         displayOptions: DisplayOptions, outputFormat: OutputFormat, sort: Sort, sortOrder: CustomSortOrder)
     {
         let semaphore = DispatchSemaphore(value: 0)
         let calendar = Calendar.current
         let flaggedKeys = RemindersDB.getFlaggedKeys()
         let tagMap = RemindersDB.getTagMap()
+        let sectionMap = RemindersDB.getSectionMap()
 
         self.reminders(on: [self.calendar(withName: name)], displayOptions: displayOptions) { reminders in
-            var matchingReminders: [(reminder: EKReminder, index: Int?, isFlagged: Bool, tags: [String])] = []
+            var matchingReminders: [(reminder: EKReminder, index: Int?, isFlagged: Bool, tags: [String], section: String?)] = []
             let reminders = sort == .none ? reminders : reminders.sorted(by: sort.sortFunction(order: sortOrder))
             for (i, reminder) in reminders.enumerated() {
                 let index = sort == .none ? i : nil
                 let key = RemindersDB.lookupKey(listName: name, title: reminder.title ?? "")
                 let isFlagged = flaggedKeys.contains(key)
                 let tags = tagMap[key] ?? []
+                let section = sectionMap[key]
 
                 if onlyFlagged && !isFlagged { continue }
                 if let tag = withTag, !tags.contains(tag) { continue }
+                if let sec = inSection, section != sec { continue }
 
                 if hasDueDate && reminder.dueDateComponents == nil {
                     continue
                 }
 
                 guard let dueDate = dueDate?.date else {
-                    matchingReminders.append((reminder, index, isFlagged, tags))
+                    matchingReminders.append((reminder, index, isFlagged, tags, section))
                     continue
                 }
 
@@ -300,17 +311,17 @@ public final class Reminders {
                     reminderDueDate, to: dueDate, toGranularity: .day) == .orderedAscending
 
                 if sameDay || (includeOverdue && earlierDay) {
-                    matchingReminders.append((reminder, index, isFlagged, tags))
+                    matchingReminders.append((reminder, index, isFlagged, tags, section))
                 }
             }
 
             switch outputFormat {
             case .json:
-                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.reminder, flagged: $0.isFlagged, tags: $0.tags) }
+                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.reminder, flagged: $0.isFlagged, tags: $0.tags, section: $0.section) }
                 print(encodeToJson(data: enriched))
             case .plain:
                 for match in matchingReminders {
-                    print(format(match.reminder, at: match.index, isFlagged: match.isFlagged, tags: match.tags))
+                    print(format(match.reminder, at: match.index, isFlagged: match.isFlagged, tags: match.tags, section: match.section))
                 }
             }
 
@@ -627,20 +638,22 @@ public final class Reminders {
 
 }
 
-/// Wraps EKReminder with extra fields not available in EventKit (e.g. flagged, tags).
+/// Wraps EKReminder with extra fields not available in EventKit (e.g. flagged, tags, section).
 struct EncodableReminder: Encodable {
     let reminder: EKReminder
     let flagged: Bool
     let tags: [String]
+    let section: String?
 
-    init(reminder: EKReminder, flagged: Bool, tags: [String] = []) {
+    init(reminder: EKReminder, flagged: Bool, tags: [String] = [], section: String? = nil) {
         self.reminder = reminder
         self.flagged = flagged
         self.tags = tags
+        self.section = section
     }
 
     private enum ExtraKeys: String, CodingKey {
-        case flagged, tags
+        case flagged, tags, section
     }
 
     func encode(to encoder: Encoder) throws {
@@ -649,6 +662,9 @@ struct EncodableReminder: Encodable {
         try container.encode(flagged, forKey: .flagged)
         if !tags.isEmpty {
             try container.encode(tags, forKey: .tags)
+        }
+        if let section = section {
+            try container.encode(section, forKey: .section)
         }
     }
 }

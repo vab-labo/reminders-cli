@@ -99,13 +99,14 @@ private func recurrenceLabel(for rule: EKRecurrenceRule) -> String {
     return freq
 }
 
-private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil, isFlagged: Bool = false) -> String {
+private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil, isFlagged: Bool = false, tags: [String] = []) -> String {
     let dateString = formattedDueDate(from: reminder).map { " (\($0))" } ?? ""
     let priorityString = Priority(reminder.mappedPriority).map { " (priority: \($0))" } ?? ""
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.map { " (\($0))" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
     let flaggedString = isFlagged ? " (flagged)" : ""
+    let tagsString = tags.isEmpty ? "" : " (tags: " + tags.map { "#\($0)" }.joined(separator: ", ") + ")"
 
     var extras = ""
     if let rule = reminder.recurrenceRules?.first {
@@ -116,7 +117,7 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
         extras += " (reminder: \(formatted))"
     }
 
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)\(flaggedString)\(extras)"
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)\(flaggedString)\(tagsString)\(extras)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -201,28 +202,31 @@ public final class Reminders {
     }
 
     func showAllReminders(dueOn dueDate: DateComponents?, includeOverdue: Bool, hasDueDate: Bool,
-        onlyFlagged: Bool = false,
+        onlyFlagged: Bool = false, withTag: String? = nil,
         displayOptions: DisplayOptions, outputFormat: OutputFormat
     ) {
         let semaphore = DispatchSemaphore(value: 0)
         let calendar = Calendar.current
         let flaggedKeys = RemindersDB.getFlaggedKeys()
+        let tagMap = RemindersDB.getTagMap()
 
         self.reminders(on: self.getCalendars(), displayOptions: displayOptions) { reminders in
-            var matchingReminders: [(reminder: EKReminder, index: Int, listName: String, isFlagged: Bool)] = []
+            var matchingReminders: [(reminder: EKReminder, index: Int, listName: String, isFlagged: Bool, tags: [String])] = []
             for (i, reminder) in reminders.enumerated() {
                 let listName = reminder.calendar.title
                 let key = RemindersDB.lookupKey(listName: listName, title: reminder.title ?? "")
                 let isFlagged = flaggedKeys.contains(key)
+                let tags = tagMap[key] ?? []
 
                 if onlyFlagged && !isFlagged { continue }
+                if let tag = withTag, !tags.contains(tag) { continue }
 
                 if hasDueDate && reminder.dueDateComponents == nil {
                     continue
                 }
 
                 guard let dueDate = dueDate?.date else {
-                    matchingReminders.append((reminder, i, listName, isFlagged))
+                    matchingReminders.append((reminder, i, listName, isFlagged, tags))
                     continue
                 }
 
@@ -236,17 +240,17 @@ public final class Reminders {
                     reminderDueDate, to: dueDate, toGranularity: .day) == .orderedAscending
 
                 if sameDay || (includeOverdue && earlierDay) {
-                    matchingReminders.append((reminder, i, listName, isFlagged))
+                    matchingReminders.append((reminder, i, listName, isFlagged, tags))
                 }
             }
 
             switch outputFormat {
             case .json:
-                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.reminder, flagged: $0.isFlagged) }
+                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.reminder, flagged: $0.isFlagged, tags: $0.tags) }
                 print(encodeToJson(data: enriched))
             case .plain:
                 for match in matchingReminders {
-                    print(format(match.reminder, at: match.index, listName: match.listName, isFlagged: match.isFlagged))
+                    print(format(match.reminder, at: match.index, listName: match.listName, isFlagged: match.isFlagged, tags: match.tags))
                 }
             }
 
@@ -257,29 +261,32 @@ public final class Reminders {
     }
 
     func showListItems(withName name: String, dueOn dueDate: DateComponents?, includeOverdue: Bool, hasDueDate: Bool,
-        onlyFlagged: Bool = false,
+        onlyFlagged: Bool = false, withTag: String? = nil,
         displayOptions: DisplayOptions, outputFormat: OutputFormat, sort: Sort, sortOrder: CustomSortOrder)
     {
         let semaphore = DispatchSemaphore(value: 0)
         let calendar = Calendar.current
         let flaggedKeys = RemindersDB.getFlaggedKeys()
+        let tagMap = RemindersDB.getTagMap()
 
         self.reminders(on: [self.calendar(withName: name)], displayOptions: displayOptions) { reminders in
-            var matchingReminders: [(reminder: EKReminder, index: Int?, isFlagged: Bool)] = []
+            var matchingReminders: [(reminder: EKReminder, index: Int?, isFlagged: Bool, tags: [String])] = []
             let reminders = sort == .none ? reminders : reminders.sorted(by: sort.sortFunction(order: sortOrder))
             for (i, reminder) in reminders.enumerated() {
                 let index = sort == .none ? i : nil
                 let key = RemindersDB.lookupKey(listName: name, title: reminder.title ?? "")
                 let isFlagged = flaggedKeys.contains(key)
+                let tags = tagMap[key] ?? []
 
                 if onlyFlagged && !isFlagged { continue }
+                if let tag = withTag, !tags.contains(tag) { continue }
 
                 if hasDueDate && reminder.dueDateComponents == nil {
                     continue
                 }
 
                 guard let dueDate = dueDate?.date else {
-                    matchingReminders.append((reminder, index, isFlagged))
+                    matchingReminders.append((reminder, index, isFlagged, tags))
                     continue
                 }
 
@@ -293,17 +300,17 @@ public final class Reminders {
                     reminderDueDate, to: dueDate, toGranularity: .day) == .orderedAscending
 
                 if sameDay || (includeOverdue && earlierDay) {
-                    matchingReminders.append((reminder, index, isFlagged))
+                    matchingReminders.append((reminder, index, isFlagged, tags))
                 }
             }
 
             switch outputFormat {
             case .json:
-                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.reminder, flagged: $0.isFlagged) }
+                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.reminder, flagged: $0.isFlagged, tags: $0.tags) }
                 print(encodeToJson(data: enriched))
             case .plain:
                 for match in matchingReminders {
-                    print(format(match.reminder, at: match.index, isFlagged: match.isFlagged))
+                    print(format(match.reminder, at: match.index, isFlagged: match.isFlagged, tags: match.tags))
                 }
             }
 
@@ -620,19 +627,29 @@ public final class Reminders {
 
 }
 
-/// Wraps EKReminder with extra fields not available in EventKit (e.g. flagged).
+/// Wraps EKReminder with extra fields not available in EventKit (e.g. flagged, tags).
 struct EncodableReminder: Encodable {
     let reminder: EKReminder
     let flagged: Bool
+    let tags: [String]
+
+    init(reminder: EKReminder, flagged: Bool, tags: [String] = []) {
+        self.reminder = reminder
+        self.flagged = flagged
+        self.tags = tags
+    }
 
     private enum ExtraKeys: String, CodingKey {
-        case flagged
+        case flagged, tags
     }
 
     func encode(to encoder: Encoder) throws {
         try reminder.encode(to: encoder)
         var container = encoder.container(keyedBy: ExtraKeys.self)
         try container.encode(flagged, forKey: .flagged)
+        if !tags.isEmpty {
+            try container.encode(tags, forKey: .tags)
+        }
     }
 }
 

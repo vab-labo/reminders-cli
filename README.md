@@ -131,6 +131,19 @@ Soon: 0: Buy groceries (flagged)
 Note: Flagged status is read from the Reminders.app SQLite database and
 written via AppleScript, since EventKit does not expose a flagged API.
 
+#### Filter by tag
+
+```
+$ reminders show Soon --tag shopping
+0: Buy groceries (tags: #shopping)
+$ reminders show-all --tag work
+Work: 0: Finish report (tags: #work, #urgent)
+```
+
+Tags are read from the Reminders.app SQLite database (read-only), since
+EventKit does not expose a tags API. Tags can only be created and edited
+in the Reminders app.
+
 #### Sort reminders
 
 ```

@@ -41,6 +41,11 @@ private struct ShowAll: ParsableCommand {
 
     @Option(
         name: .shortAndLong,
+        help: "Only show reminders with this tag")
+    var tag: String?
+
+    @Option(
+        name: .shortAndLong,
         help: "Show only reminders due on this date")
     var dueDate: DateComponents?
 
@@ -66,7 +71,7 @@ private struct ShowAll: ParsableCommand {
 
         reminders.showAllReminders(
             dueOn: self.dueDate, includeOverdue: self.includeOverdue, hasDueDate: self.hasDueDate,
-            onlyFlagged: self.flagged,
+            onlyFlagged: self.flagged, withTag: self.tag,
             displayOptions: displayOptions, outputFormat: format)
     }
 }
@@ -94,6 +99,11 @@ private struct Show: ParsableCommand {
 
     @Flag(help: "Only show flagged reminders")
     var flagged = false
+
+    @Option(
+        name: .shortAndLong,
+        help: "Only show reminders with this tag")
+    var tag: String?
 
     @Option(
         name: .shortAndLong,
@@ -132,7 +142,7 @@ private struct Show: ParsableCommand {
 
         reminders.showListItems(
             withName: self.listName, dueOn: self.dueDate, includeOverdue: self.includeOverdue, hasDueDate: self.hasDueDate,
-            onlyFlagged: self.flagged,
+            onlyFlagged: self.flagged, withTag: self.tag,
             displayOptions: displayOptions, outputFormat: format, sort: sort, sortOrder: sortOrder)
     }
 }

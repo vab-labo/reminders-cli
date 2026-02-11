@@ -19,31 +19,54 @@ enum RemindersDB {
     static func getFlaggedKeys() -> Set<String> {
         var result = Set<String>()
         for dbPath in findDatabases() {
-            guard let db = openReadOnly(dbPath) else { continue }
-            defer { sqlite3_close(db) }
-
-            let sql = """
+            queryRows(dbPath: dbPath, sql: """
                 SELECT r.ZTITLE, l.ZNAME
                 FROM ZREMCDREMINDER r
                 JOIN ZREMCDBASELIST l ON r.ZLIST = l.Z_PK
                 WHERE r.ZFLAGGED = 1 AND r.ZMARKEDFORDELETION = 0
-                """
-            var stmt: OpaquePointer?
-            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { continue }
-            defer { sqlite3_finalize(stmt) }
-
-            while sqlite3_step(stmt) == SQLITE_ROW {
+                """) { stmt in
                 guard let titlePtr = sqlite3_column_text(stmt, 0),
-                      let listPtr = sqlite3_column_text(stmt, 1) else { continue }
-                let title = String(cString: titlePtr)
-                let listName = String(cString: listPtr)
-                result.insert(lookupKey(listName: listName, title: title))
+                      let listPtr = sqlite3_column_text(stmt, 1) else { return }
+                result.insert(lookupKey(listName: String(cString: listPtr), title: String(cString: titlePtr)))
+            }
+        }
+        return result
+    }
+
+    /// Returns a mapping of "listName\0title" → [tag names] for all tagged reminders.
+    static func getTagMap() -> [String: [String]] {
+        var result = [String: [String]]()
+        for dbPath in findDatabases() {
+            queryRows(dbPath: dbPath, sql: """
+                SELECT r.ZTITLE, l.ZNAME, h.ZNAME
+                FROM ZREMCDOBJECT o
+                JOIN ZREMCDHASHTAGLABEL h ON o.ZHASHTAGLABEL = h.Z_PK
+                JOIN ZREMCDREMINDER r ON o.ZREMINDER3 = r.Z_PK
+                JOIN ZREMCDBASELIST l ON r.ZLIST = l.Z_PK
+                WHERE o.ZMARKEDFORDELETION = 0 AND r.ZMARKEDFORDELETION = 0
+                """) { stmt in
+                guard let titlePtr = sqlite3_column_text(stmt, 0),
+                      let listPtr = sqlite3_column_text(stmt, 1),
+                      let tagPtr = sqlite3_column_text(stmt, 2) else { return }
+                let key = lookupKey(listName: String(cString: listPtr), title: String(cString: titlePtr))
+                result[key, default: []].append(String(cString: tagPtr))
             }
         }
         return result
     }
 
     // MARK: - Private
+
+    private static func queryRows(dbPath: String, sql: String, row: (OpaquePointer) -> Void) {
+        guard let db = openReadOnly(dbPath) else { return }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            row(stmt)
+        }
+    }
 
     private static let containerPath =
         NSHomeDirectory() + "/Library/Group Containers/group.com.apple.reminders/Container_v1/Stores"

@@ -230,7 +230,7 @@ public final class Reminders {
         }
     }
 
-    func edit(itemAtIndex index: String, onListNamed name: String, newText: String?, newNotes: String?, dueDateComponents: DateComponents? = nil, clearDueDate: Bool, priority: Priority?, clearPriority: Bool) {
+    func edit(itemAtIndex index: String, onListNamed name: String, newText: String?, newNotes: String?, url: String? = nil, clearUrl: Bool = false, dueDateComponents: DateComponents? = nil, clearDueDate: Bool, priority: Priority?, clearPriority: Bool) {
         let calendar = self.calendar(withName: name)
         let semaphore = DispatchSemaphore(value: 0)
 
@@ -243,8 +243,13 @@ public final class Reminders {
             do {
                 reminder.title = newText ?? reminder.title
                 reminder.notes = newNotes ?? reminder.notes
-                
-                
+
+                if clearUrl {
+                    reminder.url = nil
+                } else if let urlString = url, let parsedUrl = URL(string: urlString) {
+                    reminder.url = parsedUrl
+                }
+
                 if clearPriority {
                     // https://developer.apple.com/documentation/eventkit/ekreminderpriority/none
                     reminder.priority = 0
@@ -337,6 +342,7 @@ public final class Reminders {
     func addReminder(
         string: String,
         notes: String?,
+        url: String? = nil,
         toListNamed name: String,
         dueDateComponents: DateComponents?,
         priority: Priority,
@@ -347,6 +353,9 @@ public final class Reminders {
         reminder.calendar = calendar
         reminder.title = string
         reminder.notes = notes
+        if let urlString = url, let parsedUrl = URL(string: urlString) {
+            reminder.url = parsedUrl
+        }
         reminder.dueDateComponents = dueDateComponents
         reminder.priority = Int(priority.value.rawValue)
         if let dueDate = dueDateComponents?.date, dueDateComponents?.hour != nil {

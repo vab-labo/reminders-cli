@@ -153,10 +153,16 @@ private struct Add: ParsableCommand {
         help: "The notes to add to the reminder")
     var notes: String?
 
+    @Option(
+        name: .shortAndLong,
+        help: "A URL to associate with the reminder")
+    var url: String?
+
     func run() {
         reminders.addReminder(
             string: self.reminder.joined(separator: " "),
             notes: self.notes,
+            url: self.url,
             toListNamed: self.listName,
             dueDateComponents: self.dueDate,
             priority: priority,
@@ -262,6 +268,15 @@ private struct Edit: ParsableCommand {
         help: "The notes to set on the reminder, overwriting previous notes")
     var notes: String?
 
+    @Option(
+        name: .shortAndLong,
+        help: "A URL to associate with the reminder")
+    var url: String?
+
+    @Flag(
+        help: "Clear the URL of the reminder.")
+    var clearUrl: Bool = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -273,8 +288,12 @@ private struct Edit: ParsableCommand {
             throw ValidationError("Don't try to set & clear the due date at the same time.")
         }
 
-        if self.reminder.isEmpty && self.notes == nil && self.dueDate == nil && !self.clearDueDate {
-            throw ValidationError("Must specify new reminder content, new notes, or a new due date.")
+        if self.url != nil && self.clearUrl {
+            throw ValidationError("Don't try to set & clear the URL at the same time.")
+        }
+
+        if self.reminder.isEmpty && self.notes == nil && self.url == nil && !self.clearUrl && self.dueDate == nil && !self.clearDueDate {
+            throw ValidationError("Must specify new reminder content, new notes, a new URL, or a new due date.")
         }
     }
 
@@ -285,6 +304,8 @@ private struct Edit: ParsableCommand {
             onListNamed: self.listName,
             newText: newText.isEmpty ? nil : newText,
             newNotes: self.notes,
+            url: self.url,
+            clearUrl: self.clearUrl,
             dueDateComponents: self.dueDate,
             clearDueDate: self.clearDueDate,
             priority: self.priority,

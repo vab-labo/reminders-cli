@@ -65,11 +65,15 @@ $ reminders show Soon
 $ reminders add Soon Contribute to open source
 $ reminders add Soon Go to the grocery store --due-date "tomorrow 9am"
 $ reminders add Soon Something really important --priority high
+$ reminders add Soon Daily standup --due-date "tomorrow 9am" --recurrence daily
+$ reminders add Soon Call dentist --due-date "friday" --remind-me-date "friday 8:30"
 $ reminders show Soon
 0: Ship reminders-cli
 1: Contribute to open source
 2: Go to the grocery store (in 10 hours)
 3: Something really important (priority: high)
+4: Daily standup (in 10 hours) (repeats: daily)
+5: Call dentist (in 3 days) (reminder: in 3 days)
 ```
 
 #### Show reminders due on or by a date
@@ -80,11 +84,43 @@ $ reminders show-all --due-date today
 $ reminders show-all --due-date today --include-overdue
 0: Ship reminders-cli (2 days ago)
 1: Contribute to open source (in 3 hours)
-$ reminders show-all --due-date 2025-02-16
+$ reminders show-all --has-due-date
+0: Ship reminders-cli (2 days ago)
 1: Contribute to open source (in 3 hours)
+2: Go to the grocery store (in 10 hours)
 $ reminders show Soon --due-date today --include-overdue
 0: Ship reminders-cli (2 days ago)
 1: Contribute to open source (in 3 hours)
+```
+
+#### Edit recurrence and remind-me-date
+
+```
+$ reminders edit Soon 4 --recurrence weekly
+Updated reminder 'Daily standup'
+$ reminders edit Soon 4 --clear-recurrence
+Updated reminder 'Daily standup'
+$ reminders edit Soon 5 --remind-me-date "friday 9:00"
+Updated reminder 'Call dentist'
+$ reminders edit Soon 5 --clear-remind-me-date
+Updated reminder 'Call dentist'
+```
+
+#### Show list colors
+
+```
+$ reminders show-lists --color
+Soon (#1BADF8)
+Eventually (#FF9500)
+```
+
+#### Sort reminders
+
+```
+$ reminders show Soon --sort due-date
+$ reminders show Soon --sort creation-date --sort-order descending
+$ reminders show Soon --sort completion-date --include-completed
+$ reminders show Soon --sort modification-date
 ```
 
 #### See help for more examples

@@ -209,7 +209,7 @@ public final class Reminders {
         let flaggedKeys = RemindersDB.getFlaggedKeys()
 
         self.reminders(on: self.getCalendars(), displayOptions: displayOptions) { reminders in
-            var matchingReminders = [(EKReminder, Int, String, Bool)]()
+            var matchingReminders: [(reminder: EKReminder, index: Int, listName: String, isFlagged: Bool)] = []
             for (i, reminder) in reminders.enumerated() {
                 let listName = reminder.calendar.title
                 let key = RemindersDB.lookupKey(listName: listName, title: reminder.title ?? "")
@@ -242,11 +242,11 @@ public final class Reminders {
 
             switch outputFormat {
             case .json:
-                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.0, flagged: $0.3) }
+                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.reminder, flagged: $0.isFlagged) }
                 print(encodeToJson(data: enriched))
             case .plain:
-                for (reminder, i, listName, isFlagged) in matchingReminders {
-                    print(format(reminder, at: i, listName: listName, isFlagged: isFlagged))
+                for match in matchingReminders {
+                    print(format(match.reminder, at: match.index, listName: match.listName, isFlagged: match.isFlagged))
                 }
             }
 
@@ -265,7 +265,7 @@ public final class Reminders {
         let flaggedKeys = RemindersDB.getFlaggedKeys()
 
         self.reminders(on: [self.calendar(withName: name)], displayOptions: displayOptions) { reminders in
-            var matchingReminders = [(EKReminder, Int?, Bool)]()
+            var matchingReminders: [(reminder: EKReminder, index: Int?, isFlagged: Bool)] = []
             let reminders = sort == .none ? reminders : reminders.sorted(by: sort.sortFunction(order: sortOrder))
             for (i, reminder) in reminders.enumerated() {
                 let index = sort == .none ? i : nil
@@ -299,11 +299,11 @@ public final class Reminders {
 
             switch outputFormat {
             case .json:
-                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.0, flagged: $0.2) }
+                let enriched = matchingReminders.map { EncodableReminder(reminder: $0.reminder, flagged: $0.isFlagged) }
                 print(encodeToJson(data: enriched))
             case .plain:
-                for (reminder, i, isFlagged) in matchingReminders {
-                    print(format(reminder, at: i, isFlagged: isFlagged))
+                for match in matchingReminders {
+                    print(format(match.reminder, at: match.index, isFlagged: match.isFlagged))
                 }
             }
 
@@ -657,10 +657,10 @@ enum AppleScriptBridge {
             try process.run()
             process.waitUntilExit()
             if process.terminationStatus != 0 {
-                print("Warning: Failed to set flagged via AppleScript")
+                fputs("Warning: Failed to set flagged via AppleScript\n", stderr)
             }
         } catch {
-            print("Warning: Failed to run AppleScript: \(error)")
+            fputs("Warning: Failed to run AppleScript: \(error)\n", stderr)
         }
     }
 }

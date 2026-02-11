@@ -1,11 +1,12 @@
 import Foundation
-
-#if canImport(SQLite3)
 import SQLite3
-#endif
 
 /// Reads extra fields from the Reminders.app SQLite DB that EventKit doesn't expose.
 /// Read-only — writing would break CloudKit sync.
+///
+/// Lookup uses listName + title as composite key because EventKit identifiers
+/// and SQLite identifiers use completely different ID schemes with no mapping.
+/// This means duplicate titles within the same list cannot be distinguished.
 enum RemindersDB {
 
     /// Key for looking up flagged status: "listName\0title"
@@ -44,16 +45,14 @@ enum RemindersDB {
 
     // MARK: - Private
 
-    private static let containerPath: String = {
-        let home = NSHomeDirectory()
-        return home + "/Library/Group Containers/group.com.apple.reminders/Container_v1/Stores"
-    }()
+    private static let containerPath =
+        NSHomeDirectory() + "/Library/Group Containers/group.com.apple.reminders/Container_v1/Stores"
 
     private static func findDatabases() -> [String] {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(atPath: containerPath) else { return [] }
         return files
-            .filter { $0.hasPrefix("Data-") && $0.hasSuffix(".sqlite") && $0 != "Data-local.sqlite" }
+            .filter { $0.hasPrefix("Data-") && $0.hasSuffix(".sqlite") && $0 != "Data-local.sqlite" } // Data-local.sqlite has a different schema (no ZREMCDREMINDER table)
             .map { containerPath + "/" + $0 }
     }
 

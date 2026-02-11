@@ -114,6 +114,23 @@ Soon (#1BADF8)
 Eventually (#FF9500)
 ```
 
+#### Flagged reminders
+
+```
+$ reminders add Soon Buy groceries --flagged
+$ reminders show Soon --flagged
+0: Buy groceries (flagged)
+$ reminders edit Soon 0 --unflag
+Updated reminder 'Buy groceries'
+$ reminders edit Soon 0 --flagged
+Updated reminder 'Buy groceries'
+$ reminders show-all --flagged
+Soon: 0: Buy groceries (flagged)
+```
+
+Note: Flagged status is read from the Reminders.app SQLite database and
+written via AppleScript, since EventKit does not expose a flagged API.
+
 #### Sort reminders
 
 ```

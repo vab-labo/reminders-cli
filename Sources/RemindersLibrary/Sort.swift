@@ -5,6 +5,8 @@ public enum Sort: String, Decodable, ExpressibleByArgument, CaseIterable {
     case none
     case creationDate = "creation-date"
     case dueDate = "due-date"
+    case completionDate = "completion-date"
+    case modificationDate = "modification-date"
 
     public static let commaSeparatedCases = Self.allCases.map { $0.rawValue }.joined(separator: ", ")
 
@@ -19,6 +21,23 @@ public enum Sort: String, Decodable, ExpressibleByArgument, CaseIterable {
                     case (.none, .some): return false
                     case (.some, .none): return true
                     case (.some, .some): return comparison($0.dueDateComponents!.date!, $1.dueDateComponents!.date!)
+                }
+            }
+            case .completionDate: return {
+                // nil (incomplete) sorts to end regardless of order
+                switch ($0.completionDate, $1.completionDate) {
+                    case (.none, .none): return false
+                    case (.none, .some): return false
+                    case (.some, .none): return true
+                    case (.some(let a), .some(let b)): return comparison(a, b)
+                }
+            }
+            case .modificationDate: return {
+                switch ($0.lastModifiedDate, $1.lastModifiedDate) {
+                    case (.none, .none): return false
+                    case (.none, .some): return false
+                    case (.some, .none): return true
+                    case (.some(let a), .some(let b)): return comparison(a, b)
                 }
             }
         }

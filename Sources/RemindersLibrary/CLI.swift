@@ -11,8 +11,12 @@ private struct ShowLists: ParsableCommand {
         help: "format, either of 'plain' or 'json'")
     var format: OutputFormat = .plain
 
+    @Flag(
+        help: "Show list color as hex")
+    var color = false
+
     func run() {
-        reminders.showLists(outputFormat: format)
+        reminders.showLists(outputFormat: format, showColor: color)
     }
 }
 
@@ -28,6 +32,9 @@ private struct ShowAll: ParsableCommand {
 
     @Flag(help: "When using --due-date, also include items due before the due date")
     var includeOverdue = false
+
+    @Flag(help: "Only show reminders that have a due date set")
+    var hasDueDate = false
 
     @Option(
         name: .shortAndLong,
@@ -55,7 +62,7 @@ private struct ShowAll: ParsableCommand {
         }
 
         reminders.showAllReminders(
-            dueOn: self.dueDate, includeOverdue: self.includeOverdue,
+            dueOn: self.dueDate, includeOverdue: self.includeOverdue, hasDueDate: self.hasDueDate,
             displayOptions: displayOptions, outputFormat: format)
     }
 }
@@ -77,6 +84,9 @@ private struct Show: ParsableCommand {
 
     @Flag(help: "When using --due-date, also include items due before the due date")
     var includeOverdue = false
+
+    @Flag(help: "Only show reminders that have a due date set")
+    var hasDueDate = false
 
     @Option(
         name: .shortAndLong,
@@ -114,7 +124,7 @@ private struct Show: ParsableCommand {
         }
 
         reminders.showListItems(
-            withName: self.listName, dueOn: self.dueDate, includeOverdue: self.includeOverdue,
+            withName: self.listName, dueOn: self.dueDate, includeOverdue: self.includeOverdue, hasDueDate: self.hasDueDate,
             displayOptions: displayOptions, outputFormat: format, sort: sort, sortOrder: sortOrder)
     }
 }
@@ -158,6 +168,16 @@ private struct Add: ParsableCommand {
         help: "A URL to associate with the reminder")
     var url: String?
 
+    @Option(
+        name: .long,
+        help: "Set a remind-me date/time for the alarm notification")
+    var remindMeDate: DateComponents?
+
+    @Option(
+        name: .long,
+        help: "Set a recurrence rule, one of: \(Recurrence.commaSeparatedCases)")
+    var recurrence: Recurrence?
+
     func run() {
         reminders.addReminder(
             string: self.reminder.joined(separator: " "),
@@ -166,6 +186,8 @@ private struct Add: ParsableCommand {
             toListNamed: self.listName,
             dueDateComponents: self.dueDate,
             priority: priority,
+            remindMeDate: self.remindMeDate,
+            recurrence: self.recurrence,
             outputFormat: format)
     }
 }
@@ -242,22 +264,22 @@ private struct Edit: ParsableCommand {
     @Argument(
         help: "The index or id of the reminder to delete, see 'show' for indexes")
     var index: String
-    
+
     @Option(
         name: .shortAndLong,
         help: "The new date the reminder is due")
     var dueDate: DateComponents?
-    
+
     @Flag(
         name: .shortAndLong,
         help: "Clear the due date.")
     var clearDueDate: Bool = false
-    
+
     @Option(
         name: .shortAndLong,
         help: "The new priority of the reminder")
     var priority: Priority?
-    
+
     @Flag(
         name: .shortAndLong,
         help: "Clear the priority of the reminder.")
@@ -277,6 +299,26 @@ private struct Edit: ParsableCommand {
         help: "Clear the URL of the reminder.")
     var clearUrl: Bool = false
 
+    @Option(
+        name: .long,
+        help: "Set a remind-me date/time for the alarm notification")
+    var remindMeDate: DateComponents?
+
+    @Flag(
+        name: .long,
+        help: "Clear the remind-me date alarm.")
+    var clearRemindMeDate: Bool = false
+
+    @Option(
+        name: .long,
+        help: "Set a recurrence rule, one of: \(Recurrence.commaSeparatedCases)")
+    var recurrence: Recurrence?
+
+    @Flag(
+        name: .long,
+        help: "Clear the recurrence rule.")
+    var clearRecurrence: Bool = false
+
     @Argument(
         parsing: .remaining,
         help: "The new reminder contents")
@@ -292,8 +334,19 @@ private struct Edit: ParsableCommand {
             throw ValidationError("Don't try to set & clear the URL at the same time.")
         }
 
-        if self.reminder.isEmpty && self.notes == nil && self.url == nil && !self.clearUrl && self.dueDate == nil && !self.clearDueDate {
-            throw ValidationError("Must specify new reminder content, new notes, a new URL, or a new due date.")
+        if self.remindMeDate != nil && self.clearRemindMeDate {
+            throw ValidationError("Don't try to set & clear the remind-me date at the same time.")
+        }
+
+        if self.recurrence != nil && self.clearRecurrence {
+            throw ValidationError("Don't try to set & clear the recurrence at the same time.")
+        }
+
+        if self.reminder.isEmpty && self.notes == nil && self.url == nil && !self.clearUrl
+            && self.dueDate == nil && !self.clearDueDate
+            && self.remindMeDate == nil && !self.clearRemindMeDate
+            && self.recurrence == nil && !self.clearRecurrence {
+            throw ValidationError("Must specify new reminder content, new notes, a new URL, a new due date, a remind-me date, or a recurrence.")
         }
     }
 
@@ -309,7 +362,11 @@ private struct Edit: ParsableCommand {
             dueDateComponents: self.dueDate,
             clearDueDate: self.clearDueDate,
             priority: self.priority,
-            clearPriority: self.clearPriority
+            clearPriority: self.clearPriority,
+            remindMeDate: self.remindMeDate,
+            clearRemindMeDate: self.clearRemindMeDate,
+            recurrence: self.recurrence,
+            clearRecurrence: self.clearRecurrence
         )
     }
 }

@@ -14,6 +14,89 @@ private extension EKReminder {
     var mappedPriority: EKReminderPriority {
         UInt(exactly: self.priority).flatMap(EKReminderPriority.init) ?? EKReminderPriority.none
     }
+
+    /// First time-based alarm (not location-based)
+    var firstTimeAlarm: EKAlarm? {
+        self.alarms?.first { $0.structuredLocation == nil }
+    }
+}
+
+public enum Recurrence: String, ExpressibleByArgument, CaseIterable {
+    case daily, weekdays, weekly, biweekly, monthly, yearly
+
+    public static let commaSeparatedCases = Self.allCases.map { $0.rawValue }.joined(separator: ", ")
+
+    func toRule() -> EKRecurrenceRule {
+        switch self {
+        case .daily:
+            return EKRecurrenceRule(
+                recurrenceWith: .daily, interval: 1,
+                daysOfTheWeek: nil, daysOfTheMonth: nil,
+                monthsOfTheYear: nil, weeksOfTheYear: nil,
+                daysOfTheYear: nil, setPositions: nil, end: nil)
+        case .weekdays:
+            let weekdays = [
+                EKRecurrenceDayOfWeek(.monday),
+                EKRecurrenceDayOfWeek(.tuesday),
+                EKRecurrenceDayOfWeek(.wednesday),
+                EKRecurrenceDayOfWeek(.thursday),
+                EKRecurrenceDayOfWeek(.friday),
+            ]
+            return EKRecurrenceRule(
+                recurrenceWith: .weekly, interval: 1,
+                daysOfTheWeek: weekdays, daysOfTheMonth: nil,
+                monthsOfTheYear: nil, weeksOfTheYear: nil,
+                daysOfTheYear: nil, setPositions: nil, end: nil)
+        case .weekly:
+            return EKRecurrenceRule(
+                recurrenceWith: .weekly, interval: 1,
+                daysOfTheWeek: nil, daysOfTheMonth: nil,
+                monthsOfTheYear: nil, weeksOfTheYear: nil,
+                daysOfTheYear: nil, setPositions: nil, end: nil)
+        case .biweekly:
+            return EKRecurrenceRule(
+                recurrenceWith: .weekly, interval: 2,
+                daysOfTheWeek: nil, daysOfTheMonth: nil,
+                monthsOfTheYear: nil, weeksOfTheYear: nil,
+                daysOfTheYear: nil, setPositions: nil, end: nil)
+        case .monthly:
+            return EKRecurrenceRule(
+                recurrenceWith: .monthly, interval: 1,
+                daysOfTheWeek: nil, daysOfTheMonth: nil,
+                monthsOfTheYear: nil, weeksOfTheYear: nil,
+                daysOfTheYear: nil, setPositions: nil, end: nil)
+        case .yearly:
+            return EKRecurrenceRule(
+                recurrenceWith: .yearly, interval: 1,
+                daysOfTheWeek: nil, daysOfTheMonth: nil,
+                monthsOfTheYear: nil, weeksOfTheYear: nil,
+                daysOfTheYear: nil, setPositions: nil, end: nil)
+        }
+    }
+}
+
+/// Human-readable label for an EKRecurrenceRule
+private func recurrenceLabel(for rule: EKRecurrenceRule) -> String {
+    let freq: String
+    switch rule.frequency {
+    case .daily: freq = "daily"
+    case .weekly:
+        if let days = rule.daysOfTheWeek, days.count == 5,
+           Set(days.map { $0.dayOfTheWeek }) == Set([.monday, .tuesday, .wednesday, .thursday, .friday]) {
+            freq = "weekdays"
+        } else if rule.interval == 2 {
+            freq = "biweekly"
+        } else {
+            freq = "weekly"
+        }
+    case .monthly: freq = "monthly"
+    case .yearly: freq = "yearly"
+    @unknown default: freq = "custom"
+    }
+    if rule.interval > 1 && freq != "biweekly" {
+        return "every \(rule.interval) \(freq)"
+    }
+    return freq
 }
 
 private func format(_ reminder: EKReminder, at index: Int?, listName: String? = nil) -> String {
@@ -22,7 +105,17 @@ private func format(_ reminder: EKReminder, at index: Int?, listName: String? = 
     let listString = listName.map { "\($0): " } ?? ""
     let notesString = reminder.notes.map { " (\($0))" } ?? ""
     let indexString = index.map { "\($0): " } ?? ""
-    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)"
+
+    var extras = ""
+    if let rule = reminder.recurrenceRules?.first {
+        extras += " (repeats: \(recurrenceLabel(for: rule)))"
+    }
+    if let alarm = reminder.firstTimeAlarm, let date = alarm.absoluteDate {
+        let formatted = dateFormatter.localizedString(for: date, relativeTo: Date())
+        extras += " (reminder: \(formatted))"
+    }
+
+    return "\(listString)\(indexString)\(reminder.title ?? "<unknown>")\(notesString)\(dateString)\(priorityString)\(extras)"
 }
 
 public enum OutputFormat: String, ExpressibleByArgument {
@@ -89,18 +182,24 @@ public final class Reminders {
         return self.getCalendars().map { $0.title }
     }
 
-    func showLists(outputFormat: OutputFormat) {
+    func showLists(outputFormat: OutputFormat, showColor: Bool) {
+        let calendars = self.getCalendars()
         switch (outputFormat) {
         case .json:
-            print(encodeToJson(data: self.getListNames()))
+            print(encodeToJson(data: calendars.map { $0.title }))
         default:
-            for name in self.getListNames() {
-                print(name)
+            for cal in calendars {
+                if showColor {
+                    let hex = hexColor(from: cal.cgColor)
+                    print("\(cal.title) (\(hex))")
+                } else {
+                    print(cal.title)
+                }
             }
         }
     }
 
-    func showAllReminders(dueOn dueDate: DateComponents?, includeOverdue: Bool,
+    func showAllReminders(dueOn dueDate: DateComponents?, includeOverdue: Bool, hasDueDate: Bool,
         displayOptions: DisplayOptions, outputFormat: OutputFormat
     ) {
         let semaphore = DispatchSemaphore(value: 0)
@@ -110,6 +209,11 @@ public final class Reminders {
             var matchingReminders = [(EKReminder, Int, String)]()
             for (i, reminder) in reminders.enumerated() {
                 let listName = reminder.calendar.title
+
+                if hasDueDate && reminder.dueDateComponents == nil {
+                    continue
+                }
+
                 guard let dueDate = dueDate?.date else {
                     matchingReminders.append((reminder, i, listName))
                     continue
@@ -144,7 +248,7 @@ public final class Reminders {
         semaphore.wait()
     }
 
-    func showListItems(withName name: String, dueOn dueDate: DateComponents?, includeOverdue: Bool,
+    func showListItems(withName name: String, dueOn dueDate: DateComponents?, includeOverdue: Bool, hasDueDate: Bool,
         displayOptions: DisplayOptions, outputFormat: OutputFormat, sort: Sort, sortOrder: CustomSortOrder)
     {
         let semaphore = DispatchSemaphore(value: 0)
@@ -155,6 +259,11 @@ public final class Reminders {
             let reminders = sort == .none ? reminders : reminders.sorted(by: sort.sortFunction(order: sortOrder))
             for (i, reminder) in reminders.enumerated() {
                 let index = sort == .none ? i : nil
+
+                if hasDueDate && reminder.dueDateComponents == nil {
+                    continue
+                }
+
                 guard let dueDate = dueDate?.date else {
                     matchingReminders.append((reminder, index))
                     continue
@@ -230,7 +339,13 @@ public final class Reminders {
         }
     }
 
-    func edit(itemAtIndex index: String, onListNamed name: String, newText: String?, newNotes: String?, url: String? = nil, clearUrl: Bool = false, dueDateComponents: DateComponents? = nil, clearDueDate: Bool, priority: Priority?, clearPriority: Bool) {
+    func edit(itemAtIndex index: String, onListNamed name: String, newText: String?, newNotes: String?,
+              url: String? = nil, clearUrl: Bool = false,
+              dueDateComponents: DateComponents? = nil, clearDueDate: Bool,
+              priority: Priority?, clearPriority: Bool,
+              remindMeDate: DateComponents? = nil, clearRemindMeDate: Bool = false,
+              recurrence: Recurrence? = nil, clearRecurrence: Bool = false)
+    {
         let calendar = self.calendar(withName: name)
         let semaphore = DispatchSemaphore(value: 0)
 
@@ -251,29 +366,65 @@ public final class Reminders {
                 }
 
                 if clearPriority {
-                    // https://developer.apple.com/documentation/eventkit/ekreminderpriority/none
                     reminder.priority = 0
                 }
                 else if priority != nil {
                     reminder.priority = Int(priority?.value.rawValue ?? UInt(reminder.priority))
-         
                 }
-                
+
                 if clearDueDate || (dueDateComponents != nil) {
-                    // remove previous time-based alarms, leaving location alarms.
                     reminder.dueDateComponents = nil
+                    // Remove time-based alarms, keep location alarms
                     for alarm in reminder.alarms ?? [] {
-                        if alarm.structuredLocation != nil { continue } else { reminder.removeAlarm(alarm) }
+                        if alarm.structuredLocation == nil {
+                            reminder.removeAlarm(alarm)
+                        }
                     }
-       
                 }
                 if dueDateComponents != nil {
                     reminder.dueDateComponents = dueDateComponents
-                    if let dueDate = dueDateComponents?.date, dueDateComponents?.hour != nil {
-                        reminder.addAlarm(EKAlarm(absoluteDate: dueDate))
+                    // Only add due-date auto-alarm if no explicit remind-me-date is set
+                    if remindMeDate == nil && !clearRemindMeDate {
+                        if let dueDate = dueDateComponents?.date, dueDateComponents?.hour != nil {
+                            reminder.addAlarm(EKAlarm(absoluteDate: dueDate))
+                        }
                     }
                 }
-                
+
+                // Remind-me-date (time-based alarm)
+                if clearRemindMeDate {
+                    for alarm in reminder.alarms ?? [] {
+                        if alarm.structuredLocation == nil {
+                            reminder.removeAlarm(alarm)
+                        }
+                    }
+                } else if let remindDate = remindMeDate?.date {
+                    // Remove existing time-based alarms first
+                    for alarm in reminder.alarms ?? [] {
+                        if alarm.structuredLocation == nil {
+                            reminder.removeAlarm(alarm)
+                        }
+                    }
+                    reminder.addAlarm(EKAlarm(absoluteDate: remindDate))
+                }
+
+                // Recurrence
+                if clearRecurrence {
+                    if let rules = reminder.recurrenceRules {
+                        for rule in rules {
+                            reminder.removeRecurrenceRule(rule)
+                        }
+                    }
+                } else if let recurrence = recurrence {
+                    // Replace existing rules
+                    if let rules = reminder.recurrenceRules {
+                        for rule in rules {
+                            reminder.removeRecurrenceRule(rule)
+                        }
+                    }
+                    reminder.addRecurrenceRule(recurrence.toRule())
+                }
+
                 try Store.save(reminder, commit: true)
                 print("Updated reminder '\(reminder.title!)'")
             } catch let error {
@@ -346,6 +497,8 @@ public final class Reminders {
         toListNamed name: String,
         dueDateComponents: DateComponents?,
         priority: Priority,
+        remindMeDate: DateComponents? = nil,
+        recurrence: Recurrence? = nil,
         outputFormat: OutputFormat)
     {
         let calendar = self.calendar(withName: name)
@@ -358,8 +511,17 @@ public final class Reminders {
         }
         reminder.dueDateComponents = dueDateComponents
         reminder.priority = Int(priority.value.rawValue)
-        if let dueDate = dueDateComponents?.date, dueDateComponents?.hour != nil {
+
+        // Alarm: prefer explicit remind-me-date, fallback to due-date auto-alarm
+        if let remindDate = remindMeDate?.date {
+            reminder.addAlarm(EKAlarm(absoluteDate: remindDate))
+        } else if let dueDate = dueDateComponents?.date, dueDateComponents?.hour != nil {
             reminder.addAlarm(EKAlarm(absoluteDate: dueDate))
+        }
+
+        // Recurrence
+        if let recurrence = recurrence {
+            reminder.addRecurrenceRule(recurrence.toRule())
         }
 
         do {
@@ -432,4 +594,14 @@ private func encodeToJson(data: Encodable) -> String {
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let encoded = try! encoder.encode(data)
     return String(data: encoded, encoding: .utf8) ?? ""
+}
+
+private func hexColor(from cgColor: CGColor) -> String {
+    guard let components = cgColor.components, components.count >= 3 else {
+        return "#000000"
+    }
+    let r = Int(components[0] * 255)
+    let g = Int(components[1] * 255)
+    let b = Int(components[2] * 255)
+    return String(format: "#%02X%02X%02X", r, g, b)
 }

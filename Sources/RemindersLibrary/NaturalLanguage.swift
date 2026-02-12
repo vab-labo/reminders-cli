@@ -2,12 +2,18 @@ import ArgumentParser
 import Foundation
 
 private let calendar = Calendar.current
-private let allComponents: Set<Calendar.Component> = [
-    .era, .year, .yearForWeekOfYear, .quarter, .month,
-    .weekOfYear, .weekOfMonth, .weekday, .weekdayOrdinal, .day,
-    .hour, .minute, .second, .nanosecond,
-    .calendar, .timeZone
-]
+private let allComponents: Set<Calendar.Component> = {
+    var c: Set<Calendar.Component> = [
+        .era, .year, .yearForWeekOfYear, .quarter, .month,
+        .weekOfYear, .weekOfMonth, .weekday, .weekdayOrdinal, .day,
+        .hour, .minute, .second, .nanosecond,
+        .calendar, .timeZone
+    ]
+    if #available(macOS 15, *) {
+        c.insert(.dayOfYear)
+    }
+    return c
+}()
 let timeComponents: Set<Calendar.Component> = [
     .hour, .minute, .second, .nanosecond,
 ]

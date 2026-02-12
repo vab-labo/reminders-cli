@@ -1,8 +1,28 @@
 # reminders-cli
 
-A simple CLI for interacting with OS X reminders.
+A simple CLI for interacting with macOS Reminders.
 
-## Usage:
+This is a fork of [keith/reminders-cli](https://github.com/keith/reminders-cli) with additional features.
+
+## Changes from upstream
+
+- **`--include-overdue`** for show and show-all
+- **`edit --due-date`** / **`--clear-due-date`** / **`--clear-priority`**
+- **`--url` / `--clear-url`** for add and edit (stored in notes as `URL: <url>` because EventKit's `.url` doesn't sync with Reminders.app UI)
+- **`--has-due-date`** filter for show and show-all
+- **`--recurrence`** (daily/weekdays/weekly/biweekly/monthly/yearly) and `--clear-recurrence`
+- **`--remind-me-date`** independent notification alarm and `--clear-remind-me-date`
+- **`--flagged` / `--unflag`** for add, edit, show, and show-all
+- **`--tag`** filter (read-only, via Reminders.app SQLite database)
+- **`--section`** filter (read-only, via Reminders.app SQLite database)
+- **`--sort completion-date`** and **`--sort modification-date`**
+- **`show-lists --color`** to display list colors as hex
+- **JSON output**: `reminderUrl`, `remindMeDate`, `recurrence`, `flagged`, `allDay`, `tags`, `section` fields
+- **Plain text**: `(repeats: daily)`, `(reminder: in 3 hours)`, `(flagged)`, timed display with `HH:mm`
+
+Some features use the Reminders.app SQLite database directly because EventKit does not expose the corresponding APIs. These are read-only and may break across macOS updates.
+
+## Usage
 
 #### Show all lists
 
@@ -65,11 +85,15 @@ $ reminders show Soon
 $ reminders add Soon Contribute to open source
 $ reminders add Soon Go to the grocery store --due-date "tomorrow 9am"
 $ reminders add Soon Something really important --priority high
+$ reminders add Soon Daily standup --due-date "tomorrow 9am" --recurrence daily
+$ reminders add Soon Call dentist --due-date "friday" --remind-me-date "friday 8:30"
 $ reminders show Soon
 0: Ship reminders-cli
 1: Contribute to open source
 2: Go to the grocery store (in 10 hours)
 3: Something really important (priority: high)
+4: Daily standup (in 10 hours) (repeats: daily)
+5: Call dentist (in 3 days) (reminder: in 3 days)
 ```
 
 #### Show reminders due on or by a date
@@ -80,11 +104,87 @@ $ reminders show-all --due-date today
 $ reminders show-all --due-date today --include-overdue
 0: Ship reminders-cli (2 days ago)
 1: Contribute to open source (in 3 hours)
-$ reminders show-all --due-date 2025-02-16
+$ reminders show-all --has-due-date
+0: Ship reminders-cli (2 days ago)
 1: Contribute to open source (in 3 hours)
+2: Go to the grocery store (in 10 hours)
 $ reminders show Soon --due-date today --include-overdue
 0: Ship reminders-cli (2 days ago)
 1: Contribute to open source (in 3 hours)
+```
+
+#### Edit recurrence and remind-me-date
+
+```
+$ reminders edit Soon 4 --recurrence weekly
+Updated reminder 'Daily standup'
+$ reminders edit Soon 4 --clear-recurrence
+Updated reminder 'Daily standup'
+$ reminders edit Soon 5 --remind-me-date "friday 9:00"
+Updated reminder 'Call dentist'
+$ reminders edit Soon 5 --clear-remind-me-date
+Updated reminder 'Call dentist'
+```
+
+#### Show list colors
+
+```
+$ reminders show-lists --color
+Soon (#1BADF8)
+Eventually (#FF9500)
+```
+
+#### Flagged reminders
+
+```
+$ reminders add Soon Buy groceries --flagged
+$ reminders show Soon --flagged
+0: Buy groceries (flagged)
+$ reminders edit Soon 0 --unflag
+Updated reminder 'Buy groceries'
+$ reminders edit Soon 0 --flagged
+Updated reminder 'Buy groceries'
+$ reminders show-all --flagged
+Soon: 0: Buy groceries (flagged)
+```
+
+Note: Flagged status is read from the Reminders.app SQLite database and
+written via AppleScript, since EventKit does not expose a flagged API.
+
+#### Filter by tag
+
+```
+$ reminders show Soon --tag shopping
+0: Buy groceries (tags: #shopping)
+$ reminders show-all --tag work
+Work: 0: Finish report (tags: #work, #urgent)
+```
+
+Tags are read from the Reminders.app SQLite database (read-only), since
+EventKit does not expose a tags API. Tags can only be created and edited
+in the Reminders app.
+
+#### Filter by section
+
+```
+$ reminders show Work --section "In Progress"
+0: Design mockups (section: In Progress)
+1: Code review (section: In Progress)
+$ reminders show-all --section "Monthly"
+Work: 3: Team retrospective (section: Monthly)
+```
+
+Sections are read from the Reminders.app SQLite database (read-only), since
+EventKit does not expose a sections API. Sections can only be created and
+managed in the Reminders app.
+
+#### Sort reminders
+
+```
+$ reminders show Soon --sort due-date
+$ reminders show Soon --sort creation-date --sort-order descending
+$ reminders show Soon --sort completion-date --include-completed
+$ reminders show Soon --sort modification-date
 ```
 
 #### See help for more examples
@@ -94,31 +194,16 @@ $ reminders --help
 $ reminders show -h
 ```
 
-## Installation:
-
-#### With [Homebrew](http://brew.sh/)
-
-```
-$ brew install keith/formulae/reminders-cli
-```
-
-#### From GitHub releases
-
-Download the latest release from
-[here](https://github.com/keith/reminders-cli/releases)
-
-```
-$ tar -zxvf reminders.tar.gz
-$ mv reminders /usr/local/bin
-$ rm reminders.tar.gz
-```
-
-#### Building manually
+## Installation
 
 This requires a recent Xcode installation.
 
 ```
 $ cd reminders-cli
-$ make build-release
-$ cp .build/apple/Products/Release/reminders /usr/local/bin/reminders
+$ swift build -c release
+$ cp .build/release/reminders /usr/local/bin/
 ```
+
+#### Upstream
+
+For the original version without fork changes: `brew install keith/formulae/reminders-cli`
